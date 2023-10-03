@@ -20,6 +20,4 @@ public class ApiController {
     public ResponseEntity<StatisticsResponse> statistics() {
         return ResponseEntity.ok(statisticsService.getStatistics());
     }
-
-    // startIndexing()
 }
