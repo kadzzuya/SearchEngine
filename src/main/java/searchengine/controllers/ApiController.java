@@ -103,50 +103,76 @@ public class ApiController {
 
                             int rows = prStatement.executeUpdate();
                             System.out.printf("Added %d rows", rows);
-                        } else {
-                            System.out.println("SOSI MOI HUI");
                         }
                     }
 
                     final int count = resultSet.getInt(1);
                 } else {
                     // Если код здесь запустился, то такого имени не существует
+                    URL check_URL = new URL(url);
+                    String baseURL = check_URL.getProtocol() + "://" + check_URL.getHost();
 
-                    int rows = statement.executeUpdate("INSERT site(status, status_time, last_error, url, name) VALUES('INDEXING', '" + date.toString() + "', 'NULL', '" + url + "', '" + getDomainName(url) + "')");
-                    System.out.printf("Added %d rows", rows);
+                    if(baseURL.equals(url)) {
+                        int rows = statement.executeUpdate("INSERT INTO site(status, status_time, last_error, url, name) VALUES('INDEXING', '" + date.toString() + "', 'NULL', '" + url + "', '" + getDomainName(url) + "')");
+                        System.out.printf("\nAdded %d rows", rows);
+                    } else {
+                        int rows = statement.executeUpdate("INSERT INTO site(status, status_time, last_error, url, name) VALUES('INDEXING', '" + date.toString() + "', 'NULL', '" + baseURL + "', '" + getDomainName(baseURL) + "')");
+                        System.out.printf("\nAdded %d rows", rows);
+
+                        final String querik = "SELECT * FROM site WHERE url = ?";
+                        final PreparedStatement pSt = con.prepareStatement(querik);
+                        pSt.setString(1, baseURL);
+                        final ResultSet rSe = pSt.executeQuery();
+
+                        if (rSe.next()) {
+                            int site_id = rSe.getInt("id");
+                            System.out.println(url);
+
+                            GetHTML getHTML = new GetHTML();
+                            String html = getHTML.getHTML(url);
+
+                            HttpURLConnection connection = (HttpURLConnection)check_URL.openConnection();
+                            connection.setRequestMethod("GET");
+                            connection.connect();
+                            int code = connection.getResponseCode();
+
+                            rows = statement.executeUpdate("INSERT INTO page(site_id, path, code, content) VALUES('" + site_id + "', '" + url + "', '" + code + "', '" + html + "')");
+                            System.out.printf("\nAdded %d pages", rows);
+                        }
+                    }
                 }
             } catch(Exception ex) {
                 // Ошибка
-
                 result = false;
                 System.out.println("Данная страница находится за пределами сайтов, указанных в конфигурационном файле.");
                 System.out.println("Exception: " + ex);
-
             }
-            // Добавляем в индекс отдельную страницу, адрес которой url
         } else {
             // Неудача
-
             result = false;
             System.out.println("Page is invalid!");
         }
     }
 
     public static String getDomainName(String url) throws MalformedURLException {
-        if(!url.startsWith("http") && !url.startsWith("https")){
+        if(!url.startsWith("http") && !url.startsWith("https")) {
             url = "http://" + url;
         }
+
         URL netUrl = new URL(url);
         String host = netUrl.getHost();
-        if(host.startsWith("www")){
+
+        if(host.startsWith("www")) {
             host = host.substring("www".length()+1);
         }
+
         return host;
     }
 
     @GetMapping("/startIndexing")
     public void startIndexing() {
         int size = 0;
+        LocalDate date = LocalDate.now();
         ArrayList<String> sites = new ArrayList<String>();
 
         try(Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
@@ -166,9 +192,22 @@ public class ApiController {
             statement.executeUpdate(deletePageQuery);
             String deleteLemmaQuery = "DELETE FROM site";
             statement.executeUpdate(deleteLemmaQuery);
-
             System.out.println("Данные удалены из таблиц");
             System.out.println(sites);
+
+            for(int i = 0; i < sites.size(); i++) {
+                final String siteQuery = ("INSERT INTO site (status, status_time, last_error, url, name) VALUES (?, ?, ?, ?, ?)");
+                PreparedStatement ps2 = con.prepareStatement(siteQuery);
+                ps2.setString(1, "INDEXING");
+                ps2.setString(2, date.toString());
+                ps2.setString(3, "NULL");
+                ps2.setString(4, sites.get(i));
+                ps2.setString(5, getDomainName(sites.get(i)));
+
+                int row = ps2.executeUpdate();
+                System.out.println(row);
+            }
+
         } catch(Exception ex) {
             System.out.println("Exception: " + ex);
         }
