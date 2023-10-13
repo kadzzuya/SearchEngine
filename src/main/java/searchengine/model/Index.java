@@ -9,7 +9,7 @@ import javax.persistence.*;
 @Getter
 @Setter
 @Entity
-@Table(name = "index")
+@Table(name = "index_search")
 public class Index {
     @Id
     @NotNull
@@ -26,38 +26,6 @@ public class Index {
     private int lemmaId;
 
     @NotNull
-    @Column(name = "rank")
-    private float rank;
-
-    public int getId() {
-        return id;
-    }
-
-    public void setId(int id) {
-        this.id = id;
-    }
-
-    public int getPageId() {
-        return pageId;
-    }
-
-    public void setPageId(int pageId) {
-        this.pageId = pageId;
-    }
-
-    public int getLemmaId() {
-        return lemmaId;
-    }
-
-    public void setLemmaId(int lemmaId) {
-        this.lemmaId = lemmaId;
-    }
-
-    public float getRank() {
-        return rank;
-    }
-
-    public void setRank(float rank) {
-        this.rank = rank;
-    }
+    @Column(name = "lemma_rank")
+    private float lemmaCount;
 }

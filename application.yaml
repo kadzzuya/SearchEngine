@@ -7,9 +7,11 @@ spring:
     password: 1234
     url: jdbc:mysql://localhost:3306/search_engine?useSSL=false&requireSSL=false&allowPublicKeyRetrieval=true
   jpa:
+    open-in-view: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQL8Dialect
+        default_schema: app_
     hibernate:
       ddl-auto: update
     show-sql: true
