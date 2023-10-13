@@ -1,8 +1,13 @@
 package searchengine.model;
 
 import com.sun.istack.NotNull;
+import lombok.Getter;
+import lombok.Setter;
+
 import javax.persistence.*;
 
+@Getter
+@Setter
 @Entity
 @Table(name = "lemma")
 public class Lemma {
@@ -15,9 +20,11 @@ public class Lemma {
     @Column(name = "site_id")
     private int siteId;
 
-    @Column(name = "lemma", length = 255, nullable = false)
+    @NotNull
+    @Column(name = "lemma", columnDefinition = "VARCHAR(255)")
     private String lemma;
 
+    @NotNull
     @Column(name = "frequency")
     private int frequency;
 
