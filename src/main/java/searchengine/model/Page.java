@@ -11,7 +11,7 @@ import javax.persistence.Index;
 @Setter
 @Entity
 @Table(name = "page", indexes = {
-        @Index(name = "path_index", columnList = "path")
+        @Index(name = "path_index", columnList = "path, site_id")
 })
 public class Page {
     @Id

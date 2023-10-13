@@ -17,6 +17,7 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.sql.*;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 
 @RestController
@@ -35,6 +36,8 @@ public class ApiController {
 
     @PostMapping("/indexPage")
     public void indexPage(String url) {
+        // Переменная для хранения сообщения об ошибке
+        String errorMessage = "";
         boolean result = true;
         ResultSet resultat = null;
 
@@ -47,7 +50,7 @@ public class ApiController {
             try(java.sql.Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
                 LocalDate date = LocalDate.now();
 
-                final String queryCheck = "SELECT * from site WHERE name = ?";
+                final String queryCheck = "SELECT * FROM site WHERE name = ?";
                 final PreparedStatement ps = con.prepareStatement(queryCheck);
                 ps.setString(1, getDomainName(url));
                 final ResultSet resultSet = ps.executeQuery();
@@ -91,7 +94,7 @@ public class ApiController {
                             prStatement.setString(4, html);
 
                             int rows = prStatement.executeUpdate();
-                            System.out.printf("Added %d rows", rows);
+                            System.out.printf("Added %d rows: ", rows);
                         }
                     }
 
@@ -112,10 +115,10 @@ public class ApiController {
                         preparedStatement.setString(5, getDomainName(url));
 
                         int rows = preparedStatement.executeUpdate();
-                        System.out.printf("\nAdded %d rows", rows);
+                        System.out.printf("\nAdded %d rows: ", rows);
                     } else {
                         int rows = statement.executeUpdate("INSERT INTO site(status, status_time, last_error, url, name) VALUES('INDEXING', '" + date.toString() + "', 'NULL', '" + baseURL + "', '" + getDomainName(baseURL) + "')");
-                        System.out.printf("\nAdded %d rows", rows);
+                        System.out.printf("\nAdded %d rows: ", rows);
 
                         final String querik = "SELECT * FROM site WHERE url = ?";
                         final PreparedStatement pSt = con.prepareStatement(querik);
@@ -134,14 +137,22 @@ public class ApiController {
                             connection.connect();
                             int code = connection.getResponseCode();
 
-                            rows = statement.executeUpdate("INSERT INTO page(site_id, path, code, content) VALUES('" + site_id + "', '" + url + "', '" + code + "', '" + html + "')");
-                            System.out.printf("\nAdded %d pages", rows);
+                            String insertQuery = "INSERT INTO page(site_id, path, code, content) VALUES (?, ?, ?, ?)";
+                            PreparedStatement preparedStatement = con.prepareStatement(insertQuery);
+                            preparedStatement.setInt(1, site_id);
+                            preparedStatement.setString(2, url);
+                            preparedStatement.setInt(3, code);
+                            preparedStatement.setString(4, html);
+
+                            rows = preparedStatement.executeUpdate();
+                            System.out.printf("\nAdded %d pages: ", rows);
                         }
                     }
                 }
             } catch(Exception ex) {
                 // Ошибка
                 result = false;
+                errorMessage = ex.getMessage(); // Получить сообщение об ошибке
                 System.out.println("Exception: " + ex);
             }
         } else {
@@ -169,6 +180,7 @@ public class ApiController {
     @GetMapping("/startIndexing")
     public void startIndexing() {
         boolean result = true;
+        String errorMessage = null;
 
         LocalDate date = LocalDate.now();
         ArrayList<String> sites = new ArrayList<String>();
@@ -191,11 +203,15 @@ public class ApiController {
 
             Statement statement = con.createStatement();
 
-            String deleteLemmaQuery = "DELETE FROM site";
-            statement.executeUpdate(deleteLemmaQuery);
-            String deletePageQuery = "DELETE FROM page";
+            // Сначала удаляем связанные записи из таблицы page
+            String deletePageQuery = "DELETE p FROM page p JOIN site s ON p.site_id = s.id";
             statement.executeUpdate(deletePageQuery);
-            System.out.println("1. Удалил все имеющиеся данные по этому сайту (Записи из таблиц site и page).");
+            System.out.println("\n1.1. Удалены связанные записи из таблицы page.");
+
+            // Затем удаляем записи из таблицы site
+            String deleteSiteQuery = "DELETE FROM site";
+            statement.executeUpdate(deleteSiteQuery);
+            System.out.println("1.2. Удалены записи из таблицы site.");
 
             for(int i = 0; i < sites.size(); i++) {
                 ps2.setString(1, "INDEXING");
@@ -204,6 +220,13 @@ public class ApiController {
                 ps2.setString(4, sites.get(i));
                 ps2.setString(5, getDomainName(sites.get(i)));
                 ps2.executeUpdate();
+
+                // Добавьте код для обновления status_time на текущее время
+                String updateStatusTimeQuery = "UPDATE site SET status_time = ? WHERE url = ?";
+                PreparedStatement updatePs = con.prepareStatement(updateStatusTimeQuery);
+                updatePs.setString(1, LocalDateTime.now().toString());
+                updatePs.setString(2, sites.get(i));
+                updatePs.executeUpdate();
             }
 
             System.out.println("2. Создал в таблице site новую запись со статусом INDEXING.");
@@ -211,28 +234,52 @@ public class ApiController {
             for(int j = 0; j < sites.size(); j++) {
                 String url = sites.get(j);
 
-                final String pageURLQuery = "SELECT * FROM site WHERE url = '" + url + "'";
+                String pageURLQuery = "SELECT * FROM site WHERE url = ?";
                 final PreparedStatement preparedStatement = con.prepareStatement(pageURLQuery);
+                preparedStatement.setString(1, url); // Используем параметризированный запрос
                 final ResultSet resultSet2 = preparedStatement.executeQuery();
 
-                URL check_URL = new URL(url);
-                HttpURLConnection connection = (HttpURLConnection)check_URL.openConnection();
-                connection.setRequestMethod("GET");
-                connection.connect();
+                if(resultSet2.next()) {
+                    URL check_URL = new URL(url);
+                    HttpURLConnection connection = (HttpURLConnection)check_URL.openConnection();
+                    connection.setRequestMethod("GET");
+                    connection.connect();
 
-                int code = connection.getResponseCode();
+                    int code = connection.getResponseCode();
 
-                GetHTML getHTML = new GetHTML();
-                String html = getHTML.getHTML(url); // EXCEPTION HERE!!!
+                    GetHTML getHTML = new GetHTML();
+                    String html = getHTML.getHTML(url);
 
-                ps3.setInt(1, resultSet2.getInt("id")); // SiteID
-                ps3.setString(2, url);
-                ps3.setInt(3, code);
-                ps3.setString(4, html);
-                ps3.executeUpdate();
+                    ps3.setInt(1, resultSet2.getInt("id")); // SiteID
+                    ps3.setString(2, url);
+                    ps3.setInt(3, code);
+                    ps3.setString(4, html);
+                    ps3.executeUpdate();
+                }
             }
 
-            System.out.println("3. Обошёл все страницы, начиная с главной, добавил их адреса, статусы и содержимое в базу данных в таблицу page.");
+            // После блока try/catch
+            try(java.sql.Connection conn = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
+                if(!result) {
+                    // Если произошла ошибка, обновите статус и добавьте сообщение об ошибке
+                    String updateFailedStatusQuery = "UPDATE site SET status = 'FAILED', last_error = ? WHERE status = 'INDEXING'";
+                    PreparedStatement updateFailedStatusPs = conn.prepareStatement(updateFailedStatusQuery);
+                    updateFailedStatusPs.setString(1, errorMessage);
+                    updateFailedStatusPs.executeUpdate();
+
+                    System.out.println("3. Обход завершен с ошибкой, статус изменен на FAILED, и добавлено сообщение об ошибке.");
+                } else {
+                    // Если ошибок не произошло, установите статус "INDEXED" для всех записей
+                    String updateStatusQuery = "UPDATE site SET status = 'INDEXED' WHERE status = 'INDEXING'";
+                    PreparedStatement updateStatusPs = conn.prepareStatement(updateStatusQuery);
+                    updateStatusPs.executeUpdate();
+
+                    System.out.println("3.1. Обошёл все страницы, начиная с главной, добавил их адреса, статусы и содержимое в базу данных в таблицу page.");
+                    System.out.println("3.2. Статус изменен на INDEXED.");
+                }
+            } catch(Exception ex) {
+                System.out.println("Ошибка при обновлении статуса или сообщения об ошибке: " + ex.getMessage());
+            }
         } catch(Exception ex) {
             // Ошибка
             result = false;
