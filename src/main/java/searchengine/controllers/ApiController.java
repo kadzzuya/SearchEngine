@@ -19,11 +19,17 @@ import java.sql.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @RestController
 @RequestMapping("/api")
 public class ApiController {
     private final StatisticsService statisticsService;
+
+    // Глобальная переменная для флага индексации
+    private static AtomicBoolean indexingInProgress = new AtomicBoolean(false);
 
     public ApiController(StatisticsService statisticsService) {
         this.statisticsService = statisticsService;
@@ -179,13 +185,22 @@ public class ApiController {
 
     @GetMapping("/startIndexing")
     public void startIndexing() {
+        // Проверяем, запущена ли индексация
+        if (indexingInProgress.get()) {
+            System.out.println("Индексация уже запущена");
+            return;
+        }
+
+        // Если индексация не запущена, устанавливаем флаг
+        indexingInProgress.set(true);
+
         boolean result = true;
         String errorMessage = null;
 
         LocalDate date = LocalDate.now();
         ArrayList<String> sites = new ArrayList<String>();
 
-        try(java.sql.Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
+        try (java.sql.Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
             // Успех
             final String queryCheck = "SELECT url from site";
             final String siteQuery = "INSERT INTO site (status, status_time, last_error, url, name) VALUES (?, ?, ?, ?, ?)";
@@ -213,7 +228,7 @@ public class ApiController {
             statement.executeUpdate(deleteSiteQuery);
             System.out.println("1.2. Удалены записи из таблицы site.");
 
-            for(int i = 0; i < sites.size(); i++) {
+            for (int i = 0; i < sites.size(); i++) {
                 ps2.setString(1, "INDEXING");
                 ps2.setString(2, date.toString());
                 ps2.setString(3, "NULL");
@@ -231,7 +246,7 @@ public class ApiController {
 
             System.out.println("2. Создал в таблице site новую запись со статусом INDEXING.");
 
-            for(int j = 0; j < sites.size(); j++) {
+            for (int j = 0; j < sites.size(); j++) {
                 String url = sites.get(j);
 
                 String pageURLQuery = "SELECT * FROM site WHERE url = ?";
@@ -239,9 +254,9 @@ public class ApiController {
                 preparedStatement.setString(1, url); // Используем параметризированный запрос
                 final ResultSet resultSet2 = preparedStatement.executeQuery();
 
-                if(resultSet2.next()) {
+                if (resultSet2.next()) {
                     URL check_URL = new URL(url);
-                    HttpURLConnection connection = (HttpURLConnection)check_URL.openConnection();
+                    HttpURLConnection connection = (HttpURLConnection) check_URL.openConnection();
                     connection.setRequestMethod("GET");
                     connection.connect();
 
@@ -259,8 +274,8 @@ public class ApiController {
             }
 
             // После блока try/catch
-            try(java.sql.Connection conn = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
-                if(!result) {
+            try (java.sql.Connection conn = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
+                if (!result) {
                     // Если произошла ошибка, обновите статус и добавьте сообщение об ошибке
                     String updateFailedStatusQuery = "UPDATE site SET status = 'FAILED', last_error = ? WHERE status = 'INDEXING'";
                     PreparedStatement updateFailedStatusPs = conn.prepareStatement(updateFailedStatusQuery);
@@ -277,13 +292,48 @@ public class ApiController {
                     System.out.println("3.1. Обошёл все страницы, начиная с главной, добавил их адреса, статусы и содержимое в базу данных в таблицу page.");
                     System.out.println("3.2. Статус изменен на INDEXED.");
                 }
-            } catch(Exception ex) {
+            } catch (Exception ex) {
                 System.out.println("Ошибка при обновлении статуса или сообщения об ошибке: " + ex.getMessage());
             }
-        } catch(Exception ex) {
+        } catch (Exception ex) {
             // Ошибка
             result = false;
             System.out.println("Exception: " + ex);
+        }
+
+        // По завершении индексации снимаем флаг
+        indexingInProgress.set(false);
+    }
+
+    @GetMapping("/stopIndexing")
+    public ResponseEntity<Map<String, Object>> stopIndexing() {
+        if (!indexingInProgress.get()) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("result", false);
+            response.put("error", "Индексация не запущена");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        // Если индексация запущена, снимаем флаг
+        indexingInProgress.set(false);
+
+        // Остановка индексации
+        stopIndexingProcess();
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("result", true);
+        return ResponseEntity.ok().body(response);
+    }
+
+    // Метод для остановки индексации
+    private void stopIndexingProcess() {
+        try (java.sql.Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
+            String updateFailedStatusQuery = "UPDATE site SET status = 'FAILED', last_error = ? WHERE status = 'INDEXING'";
+            PreparedStatement updateFailedStatusPs = con.prepareStatement(updateFailedStatusQuery);
+            updateFailedStatusPs.setString(1, "Индексация остановлена пользователем");
+            updateFailedStatusPs.executeUpdate();
+        } catch (Exception ex) {
+            System.out.println("Ошибка при обновлении статуса: " + ex.getMessage());
         }
     }
 }
